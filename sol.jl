@@ -1,13 +1,42 @@
 import Pkg
 Pkg.add("OrdinaryDiffEq")
+Pkg.add("DiffEqBase")
+import DiffEqBase
 using OrdinaryDiffEq
-import OrdinaryDiffEq: OrdinaryDiffEqAlgorithm,OrdinaryDiffEqConstantCache,OrdinaryDiffEqMutableCache,alg_order, alg_cache, initialize!, perform_step!, @muladd, @unpack, @cache,constvalue
+import OrdinaryDiffEq: OrdinaryDiffEqAlgorithm,OrdinaryDiffEqConstantCache,OrdinaryDiffEqMutableCache,alg_order, alg_cache, initialize!, perform_step!, @muladd, @unpack,constvalue
 
 struct RK_ALG <: OrdinaryDiffEq.OrdinaryDiffEqAlgorithm end
 export RK_ALG
 alg_order(alg::RK_ALG) = 3
-
-struct RK_ALGCache{uType,rateType,StageLimiter,StepLimiter,TabType} <: OrdinaryDiffEqMutableCache
+macro cache(expr)
+  name = expr.args[2].args[1].args[1]
+  fields = [x for x in expr.args[3].args if typeof(x)!=LineNumberNode]
+  cache_vars = Expr[]
+  jac_vars = Pair{Symbol,Expr}[]
+  for x in fields
+    if x.args[2] == :uType || x.args[2] == :rateType ||
+       x.args[2] == :kType || x.args[2] == :uNoUnitsType
+      push!(cache_vars,:(c.$(x.args[1])))
+    elseif x.args[2] == :DiffCacheType
+      push!(cache_vars,:(c.$(x.args[1]).du))
+      push!(cache_vars,:(c.$(x.args[1]).dual_du))
+    end
+  end
+  quote
+    $expr
+    $(esc(:full_cache))(c::$name) = tuple($(cache_vars...))
+  end
+end
+@cache struct SSPRK223Cache{uType,rateType,StageLimiter,StepLimiter} <: OrdinaryDiffEqMutableCache
+  u::uType
+  uprev::uType
+  k::rateType
+  tmp::uType # superfluous, only needed for callbacks...
+  fsalfirst::rateType
+  stage_limiter!::StageLimiter
+  step_limiter!::StepLimiter
+end
+@cache struct RK_ALGCache{uType,rateType,StageLimiter,StepLimiter,TabType} <: OrdinaryDiffEqMutableCache
   u::uType
   uprev::uType
   k::rateType
